@@ -10,9 +10,17 @@ from matplotlib.patches import Wedge
 import io
 import json
 
-# 设置matplotlib字体
-plt.rcParams['font.family'] = ['SimSun']
-plt.rcParams['font.sans-serif'] = ['SimSun']
+# 设置matplotlib字体（兼容 Streamlit Community Cloud / Linux）
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = [
+    'Noto Sans CJK SC',
+    'Noto Sans CJK',
+    'WenQuanYi Zen Hei',
+    'SimHei',
+    'Microsoft YaHei',
+    'Arial Unicode MS',
+    'DejaVu Sans',
+]
 plt.rcParams['axes.unicode_minus'] = False
 
 RULES_FILE = os.path.join(os.path.dirname(__file__), "code_20260417.csv")
