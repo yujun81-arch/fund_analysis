@@ -233,7 +233,9 @@ def parse_market_holdings(uploaded_market_file):
 
 def get_sunburst_plot(df_stats, total_assets):
     """生成三层旭日图的 Matplotlib Figure"""
-    total_val = total_assets if total_assets > 0 else 1
+    total_val = df_stats['资产'].sum()
+    if total_val <= 0:
+        total_val = 1
     base_colors = {
         'A股': '#5D8AA8', '海外': '#ED7D31', '债券': '#00A2E8', 
         '货币': '#004B66', '商品': '#FFD700', '其他': '#A5A5A5'
@@ -307,8 +309,7 @@ def get_sunburst_plot(df_stats, total_assets):
             curr_l2_start -= width
 
     # 3. 第三层 (三级分类)
-    placed_y = {"left": [], "right": []}
-    min_y_gap = 0.06
+    outer_labels = {"left": [], "right": []}
     for l2_name, (l2_start, l2_width, b_color) in l2_angles.items():
         l3_stats = df_stats[df_stats['二级'] == l2_name].groupby('三级')['资产'].sum().reset_index().sort_values('资产', ascending=False)
         curr_l3_start = l2_start
@@ -329,31 +330,70 @@ def get_sunburst_plot(df_stats, total_assets):
                     label_r = (outer_r + labels_r) / 2
                     tx, ty = label_r * np.cos(rad), label_r * np.sin(rad)
                     fontsize = int(round(min(13, max(9, 10 + (width - required_deg) / 18))))
-                    ax.text(tx, ty, label, ha='center', va='center', fontsize=fontsize, color='white', weight='bold', fontproperties=CH_FONT)
+                    ax.text(
+                        tx,
+                        ty,
+                        label,
+                        ha='center',
+                        va='center',
+                        fontsize=fontsize,
+                        color='white',
+                        weight='bold',
+                        fontproperties=CH_FONT,
+                    )
                 else:
                     anchor_x, anchor_y = labels_r * np.cos(rad), labels_r * np.sin(rad)
-                    elbow_x, elbow_y = (labels_r + 0.05) * np.cos(rad), (labels_r + 0.05) * np.sin(rad)
-
                     side = "right" if np.cos(rad) >= 0 else "left"
-                    label_x = (labels_r + 0.22) if side == "right" else -(labels_r + 0.22)
-                    label_y = elbow_y
-                    step = min_y_gap
-                    for _ in range(80):
-                        if all(abs(label_y - y0) >= min_y_gap for y0 in placed_y[side]):
-                            break
-                        label_y = label_y + step if label_y >= 0 else label_y - step
-                        if label_y > 1.18:
-                            label_y = 1.18
-                            step = -step
-                        if label_y < -1.18:
-                            label_y = -1.18
-                            step = -step
-                    placed_y[side].append(label_y)
-
-                    ax.plot([anchor_x, elbow_x, label_x], [anchor_y, elbow_y, label_y], color='gray', lw=0.5)
-                    ha = 'left' if side == "right" else 'right'
-                    ax.text(label_x, label_y, label, ha=ha, va='center', fontsize=10, color='#333333', weight='bold', fontproperties=CH_FONT)
-    ax.text(0, 0, "资产配置", ha='center', va='center', fontsize=22, weight='bold', color='#2C3E50', fontproperties=CH_FONT)
+                    outer_labels[side].append(
+                        {
+                            "anchor_x": anchor_x,
+                            "anchor_y": anchor_y,
+                            "rad": rad,
+                            "label": label,
+                        }
+                    )
+    # 将外侧标签按左右两侧分别排布，避免引出线交叉
+    for side, items in outer_labels.items():
+        if not items:
+            continue
+        items = sorted(items, key=lambda x: x["anchor_y"])
+        if len(items) == 1:
+            ys = [items[0]["anchor_y"]]
+        else:
+            ys = np.linspace(-1.1, 1.1, len(items))
+        label_x = (labels_r + 0.25) if side == "right" else -(labels_r + 0.25)
+        for item, label_y in zip(items, ys):
+            elbow_x = (labels_r + 0.05) * np.cos(item["rad"])
+            elbow_y = (labels_r + 0.05) * np.sin(item["rad"])
+            ax.plot(
+                [item["anchor_x"], elbow_x, label_x],
+                [item["anchor_y"], elbow_y, label_y],
+                color="gray",
+                lw=0.5,
+            )
+            ha = "left" if side == "right" else "right"
+            ax.text(
+                label_x,
+                label_y,
+                item["label"],
+                ha=ha,
+                va="center",
+                fontsize=10,
+                color="#333333",
+                weight="bold",
+                fontproperties=CH_FONT,
+            )
+    ax.text(
+        0,
+        0,
+        "资产配置",
+        ha='center',
+        va='center',
+        fontsize=22,
+        weight='bold',
+        color='#2C3E50',
+        fontproperties=CH_FONT,
+    )
     return fig
 
 # --- UI 界面 ---
