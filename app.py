@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib import font_manager as fm
 import os
 from datetime import datetime
 from matplotlib.patches import Wedge
@@ -15,13 +16,55 @@ plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = [
     'Noto Sans CJK SC',
     'Noto Sans CJK',
+    'Noto Sans SC',
+    'Noto Sans',
     'WenQuanYi Zen Hei',
     'SimHei',
     'Microsoft YaHei',
+    'STHeiti',
+    'Songti SC',
+    'PingFang SC',
     'Arial Unicode MS',
     'DejaVu Sans',
 ]
 plt.rcParams['axes.unicode_minus'] = False
+
+CH_FONT = None
+CH_FONT_NAME = None
+
+
+def init_chinese_font():
+    global CH_FONT, CH_FONT_NAME
+    candidates = [
+        "Noto Sans CJK SC",
+        "Noto Sans CJK",
+        "Noto Sans SC",
+        "Noto Sans",
+        "WenQuanYi Zen Hei",
+        "SimHei",
+        "Microsoft YaHei",
+        "STHeiti",
+        "Songti SC",
+        "PingFang SC",
+    ]
+    name_map = {f.name: f for f in fm.fontManager.ttflist}
+    for name in candidates:
+        if name in name_map:
+            f = name_map[name]
+            CH_FONT = fm.FontProperties(fname=f.fname)
+            CH_FONT_NAME = f.name
+            plt.rcParams["font.family"] = CH_FONT_NAME
+            break
+    if CH_FONT is None:
+        for f in fm.fontManager.ttflist:
+            if any(k in f.name for k in ["Noto", "WenQuanYi", "Hei", "YaHei", "Song", "Kai"]):
+                CH_FONT = fm.FontProperties(fname=f.fname)
+                CH_FONT_NAME = f.name
+                plt.rcParams["font.family"] = CH_FONT_NAME
+                break
+
+
+init_chinese_font()
 
 RULES_FILE = os.path.join(os.path.dirname(__file__), "code_20260417.csv")
 OVERRIDE_FILE = os.path.join(os.path.dirname(__file__), ".classification_overrides.json")
@@ -228,7 +271,8 @@ def get_sunburst_plot(df_stats, total_assets):
             va='center',
             color='white',
             weight='bold',
-            fontsize=12
+            fontsize=12,
+            fontproperties=CH_FONT,
         )
         l1_angles[name] = (curr_angle, width)
         curr_angle -= width
@@ -256,7 +300,8 @@ def get_sunburst_plot(df_stats, total_assets):
                     va='center',
                     color='white',
                     fontsize=fontsize,
-                    weight='bold'
+                    weight='bold',
+                    fontproperties=CH_FONT,
                 )
             l2_angles[row['二级']] = (curr_l2_start, width, base_color)
             curr_l2_start -= width
@@ -284,7 +329,7 @@ def get_sunburst_plot(df_stats, total_assets):
                     label_r = (outer_r + labels_r) / 2
                     tx, ty = label_r * np.cos(rad), label_r * np.sin(rad)
                     fontsize = int(round(min(13, max(9, 10 + (width - required_deg) / 18))))
-                    ax.text(tx, ty, label, ha='center', va='center', fontsize=fontsize, color='white', weight='bold')
+                    ax.text(tx, ty, label, ha='center', va='center', fontsize=fontsize, color='white', weight='bold', fontproperties=CH_FONT)
                 else:
                     anchor_x, anchor_y = labels_r * np.cos(rad), labels_r * np.sin(rad)
                     elbow_x, elbow_y = (labels_r + 0.05) * np.cos(rad), (labels_r + 0.05) * np.sin(rad)
@@ -307,10 +352,8 @@ def get_sunburst_plot(df_stats, total_assets):
 
                     ax.plot([anchor_x, elbow_x, label_x], [anchor_y, elbow_y, label_y], color='gray', lw=0.5)
                     ha = 'left' if side == "right" else 'right'
-                    ax.text(label_x, label_y, label, ha=ha, va='center', fontsize=10, color='#333333', weight='bold')
-            curr_l3_start -= width
-
-    ax.text(0, 0, "资产配置", ha='center', va='center', fontsize=22, weight='bold', color='#2C3E50')
+                    ax.text(label_x, label_y, label, ha=ha, va='center', fontsize=10, color='#333333', weight='bold', fontproperties=CH_FONT)
+    ax.text(0, 0, "资产配置", ha='center', va='center', fontsize=22, weight='bold', color='#2C3E50', fontproperties=CH_FONT)
     return fig
 
 # --- UI 界面 ---
@@ -473,6 +516,8 @@ else:
             
         with col2:
             st.write("### 统计摘要")
+            if CH_FONT_NAME:
+                st.caption(f"当前图形字体: {CH_FONT_NAME}")
             summary = df_stats.groupby('一级', as_index=False)['资产'].sum()
             summary['资产'] = pd.to_numeric(summary['资产'], errors='coerce').fillna(0)
             summary = summary.sort_values('资产', ascending=False, kind='mergesort').reset_index(drop=True)
