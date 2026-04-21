@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib import font_manager as fm
 import os
 from datetime import datetime
 from matplotlib.patches import Wedge
@@ -11,9 +12,44 @@ import io
 import json
 
 # 设置matplotlib字体
-plt.rcParams['font.family'] = ['SimSun']
-plt.rcParams['font.sans-serif'] = ['SimSun']
-plt.rcParams['axes.unicode_minus'] = False
+CH_FONT = None
+CH_FONT_NAME = None
+
+
+def init_chinese_font():
+    global CH_FONT, CH_FONT_NAME
+    candidates = [
+        "SimSun",
+        "Microsoft YaHei",
+        "SimHei",
+        "Noto Sans CJK SC",
+        "Noto Sans CJK JP",
+        "Noto Sans CJK",
+        "Noto Sans SC",
+        "Noto Sans",
+        "WenQuanYi Zen Hei",
+        "Arial Unicode MS",
+        "DejaVu Sans",
+    ]
+    try:
+        fm.fontManager = fm._load_fontmanager(try_read_cache=False)
+    except Exception:
+        pass
+
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["font.sans-serif"] = candidates
+    plt.rcParams["axes.unicode_minus"] = False
+
+    name_map = {f.name: f for f in fm.fontManager.ttflist}
+    for name in candidates:
+        if name in name_map:
+            f = name_map[name]
+            CH_FONT = fm.FontProperties(fname=f.fname)
+            CH_FONT_NAME = f.name
+            break
+
+
+init_chinese_font()
 
 RULES_FILE = os.path.join(os.path.dirname(__file__), "code_20260417.csv")
 OVERRIDE_FILE = os.path.join(os.path.dirname(__file__), ".classification_overrides.json")
