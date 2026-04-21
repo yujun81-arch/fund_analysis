@@ -4,16 +4,79 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib import font_manager as fm
 import os
 from datetime import datetime
 from matplotlib.patches import Wedge
 import io
 import json
 
-# 设置matplotlib字体
-plt.rcParams['font.family'] = ['SimSun']
-plt.rcParams['font.sans-serif'] = ['SimSun']
-plt.rcParams['axes.unicode_minus'] = False
+def init_chinese_font():
+    preferred = [
+        "SimSun",
+        "Microsoft YaHei",
+        "SimHei",
+        "Noto Sans CJK SC",
+        "Noto Sans CJK JP",
+        "Noto Sans CJK",
+        "Noto Sans SC",
+        "Noto Sans",
+        "WenQuanYi Zen Hei",
+        "Arial Unicode MS",
+        "DejaVu Sans",
+    ]
+    name_map = {f.name: f for f in fm.fontManager.ttflist}
+    for name in preferred:
+        if name in name_map:
+            plt.rcParams["font.family"] = "sans-serif"
+            plt.rcParams["font.sans-serif"] = [name]
+            return
+    for f in fm.fontManager.ttflist:
+        if any(k in f.name for k in ["Noto Sans CJK", "WenQuanYi", "YaHei", "SimHei"]):
+            plt.rcParams["font.family"] = "sans-serif"
+            plt.rcParams["font.sans-serif"] = [f.name]
+            return
+    plt.rcParams["font.family"] = "sans-serif"
+
+init_chinese_font()
+plt.rcParams["axes.unicode_minus"] = False
+
+CH_FONT = None
+CH_FONT_NAME = None
+
+
+def init_chinese_font():
+    global CH_FONT, CH_FONT_NAME
+    candidates = [
+        "Noto Sans CJK SC",
+        "Noto Sans CJK",
+        "Noto Sans SC",
+        "Noto Sans",
+        "WenQuanYi Zen Hei",
+        "SimHei",
+        "Microsoft YaHei",
+        "STHeiti",
+        "Songti SC",
+        "PingFang SC",
+    ]
+    name_map = {f.name: f for f in fm.fontManager.ttflist}
+    for name in candidates:
+        if name in name_map:
+            f = name_map[name]
+            CH_FONT = fm.FontProperties(fname=f.fname)
+            CH_FONT_NAME = f.name
+            plt.rcParams["font.family"] = CH_FONT_NAME
+            break
+    if CH_FONT is None:
+        for f in fm.fontManager.ttflist:
+            if any(k in f.name for k in ["Noto", "WenQuanYi", "Hei", "YaHei", "Song", "Kai"]):
+                CH_FONT = fm.FontProperties(fname=f.fname)
+                CH_FONT_NAME = f.name
+                plt.rcParams["font.family"] = CH_FONT_NAME
+                break
+
+
+init_chinese_font()
 
 RULES_FILE = os.path.join(os.path.dirname(__file__), "code_20260417.csv")
 OVERRIDE_FILE = os.path.join(os.path.dirname(__file__), ".classification_overrides.json")
@@ -182,7 +245,9 @@ def parse_market_holdings(uploaded_market_file):
 
 def get_sunburst_plot(df_stats, total_assets):
     """生成三层旭日图的 Matplotlib Figure"""
-    total_val = total_assets if total_assets > 0 else 1
+    total_val = df_stats['资产'].sum()
+    if total_val <= 0:
+        total_val = 1
     base_colors = {
         'A股': '#5D8AA8', '海外': '#ED7D31', '债券': '#00A2E8', 
         '货币': '#004B66', '商品': '#FFD700', '其他': '#A5A5A5'
@@ -220,7 +285,8 @@ def get_sunburst_plot(df_stats, total_assets):
             va='center',
             color='white',
             weight='bold',
-            fontsize=12
+            fontsize=12,
+            fontproperties=CH_FONT,
         )
         l1_angles[name] = (curr_angle, width)
         curr_angle -= width
@@ -248,14 +314,14 @@ def get_sunburst_plot(df_stats, total_assets):
                     va='center',
                     color='white',
                     fontsize=fontsize,
-                    weight='bold'
+                    weight='bold',
+                    fontproperties=CH_FONT,
                 )
             l2_angles[row['二级']] = (curr_l2_start, width, base_color)
             curr_l2_start -= width
 
     # 3. 第三层 (三级分类)
-    placed_y = {"left": [], "right": []}
-    min_y_gap = 0.06
+    outer_labels = {"left": [], "right": []}
     for l2_name, (l2_start, l2_width, b_color) in l2_angles.items():
         l3_stats = df_stats[df_stats['二级'] == l2_name].groupby('三级')['资产'].sum().reset_index().sort_values('资产', ascending=False)
         curr_l3_start = l2_start
@@ -263,7 +329,7 @@ def get_sunburst_plot(df_stats, total_assets):
             pct = row['资产'] / total_val
             width = (row['资产'] / l3_stats['资产'].sum()) * l2_width
             color = matplotlib.colors.to_rgba(b_color, alpha=0.5 - (i % 3) * 0.1)
-            ax.add_patch(Wedge((0, 0), labels_r, curr_l3_start - width, curr_l3_start, width=labels_r-outer_r, facecolor=color, edgecolor='w'))
+            ax.add_patch(Wedge((0, 0), outer_r + 0.25, curr_l3_start - width, curr_l3_start, width=0.25, facecolor=color, edgecolor='w'))
             if pct > 0.003:
                 mid_a = curr_l3_start - width / 2
                 rad = np.deg2rad(mid_a)
@@ -273,36 +339,73 @@ def get_sunburst_plot(df_stats, total_assets):
                 required_deg = 10 + len(name) * 1.5
                 inside_ok = width >= required_deg and pct >= 0.004
                 if inside_ok:
-                    label_r = (outer_r + labels_r) / 2
+                    label_r = outer_r + 0.125  # 第三层中间位置
                     tx, ty = label_r * np.cos(rad), label_r * np.sin(rad)
                     fontsize = int(round(min(13, max(9, 10 + (width - required_deg) / 18))))
-                    ax.text(tx, ty, label, ha='center', va='center', fontsize=fontsize, color='white', weight='bold')
+                    ax.text(
+                        tx,
+                        ty,
+                        label,
+                        ha='center',
+                        va='center',
+                        fontsize=fontsize,
+                        color='white',
+                        weight='bold',
+                        fontproperties=CH_FONT,
+                    )
                 else:
-                    anchor_x, anchor_y = labels_r * np.cos(rad), labels_r * np.sin(rad)
-                    elbow_x, elbow_y = (labels_r + 0.05) * np.cos(rad), (labels_r + 0.05) * np.sin(rad)
-
+                    anchor_x, anchor_y = (outer_r + 0.25) * np.cos(rad), (outer_r + 0.25) * np.sin(rad)
                     side = "right" if np.cos(rad) >= 0 else "left"
-                    label_x = (labels_r + 0.22) if side == "right" else -(labels_r + 0.22)
-                    label_y = elbow_y
-                    step = min_y_gap
-                    for _ in range(80):
-                        if all(abs(label_y - y0) >= min_y_gap for y0 in placed_y[side]):
-                            break
-                        label_y = label_y + step if label_y >= 0 else label_y - step
-                        if label_y > 1.18:
-                            label_y = 1.18
-                            step = -step
-                        if label_y < -1.18:
-                            label_y = -1.18
-                            step = -step
-                    placed_y[side].append(label_y)
-
-                    ax.plot([anchor_x, elbow_x, label_x], [anchor_y, elbow_y, label_y], color='gray', lw=0.5)
-                    ha = 'left' if side == "right" else 'right'
-                    ax.text(label_x, label_y, label, ha=ha, va='center', fontsize=10, color='#333333', weight='bold')
-            curr_l3_start -= width
-
-    ax.text(0, 0, "资产配置", ha='center', va='center', fontsize=22, weight='bold', color='#2C3E50')
+                    outer_labels[side].append(
+                        {
+                            "anchor_x": anchor_x,
+                            "anchor_y": anchor_y,
+                            "rad": rad,
+                            "label": label,
+                        }
+                    )
+    # 将外侧标签按左右两侧分别排布，避免引出线交叉
+    for side, items in outer_labels.items():
+        if not items:
+            continue
+        items = sorted(items, key=lambda x: x["anchor_y"])
+        if len(items) == 1:
+            ys = [items[0]["anchor_y"]]
+        else:
+            ys = np.linspace(-1.1, 1.1, len(items))
+        label_x = (labels_r + 0.25) if side == "right" else -(labels_r + 0.25)
+        for item, label_y in zip(items, ys):
+            elbow_x = (labels_r + 0.05) * np.cos(item["rad"])
+            elbow_y = (labels_r + 0.05) * np.sin(item["rad"])
+            ax.plot(
+                [item["anchor_x"], elbow_x, label_x],
+                [item["anchor_y"], elbow_y, label_y],
+                color="gray",
+                lw=0.5,
+            )
+            ha = "left" if side == "right" else "right"
+            ax.text(
+                label_x,
+                label_y,
+                item["label"],
+                ha=ha,
+                va="center",
+                fontsize=10,
+                color="#333333",
+                weight="bold",
+                fontproperties=CH_FONT,
+            )
+    ax.text(
+        0,
+        0,
+        "资产配置",
+        ha='center',
+        va='center',
+        fontsize=22,
+        weight='bold',
+        color='#2C3E50',
+        fontproperties=CH_FONT,
+    )
     return fig
 
 # --- UI 界面 ---
@@ -465,6 +568,8 @@ else:
             
         with col2:
             st.write("### 统计摘要")
+            if CH_FONT_NAME:
+                st.caption(f"当前图形字体: {CH_FONT_NAME}")
             summary = df_stats.groupby('一级', as_index=False)['资产'].sum()
             summary['资产'] = pd.to_numeric(summary['资产'], errors='coerce').fillna(0)
             summary = summary.sort_values('资产', ascending=False, kind='mergesort').reset_index(drop=True)
