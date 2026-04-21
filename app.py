@@ -317,7 +317,7 @@ def get_sunburst_plot(df_stats, total_assets):
             pct = row['资产'] / total_val
             width = (row['资产'] / l3_stats['资产'].sum()) * l2_width
             color = matplotlib.colors.to_rgba(b_color, alpha=0.5 - (i % 3) * 0.1)
-            ax.add_patch(Wedge((0, 0), labels_r, curr_l3_start - width, curr_l3_start, width=labels_r-outer_r, facecolor=color, edgecolor='w'))
+            ax.add_patch(Wedge((0, 0), outer_r + 0.25, curr_l3_start - width, curr_l3_start, width=0.25, facecolor=color, edgecolor='w'))
             if pct > 0.003:
                 mid_a = curr_l3_start - width / 2
                 rad = np.deg2rad(mid_a)
@@ -327,7 +327,7 @@ def get_sunburst_plot(df_stats, total_assets):
                 required_deg = 10 + len(name) * 1.5
                 inside_ok = width >= required_deg and pct >= 0.004
                 if inside_ok:
-                    label_r = (outer_r + labels_r) / 2
+                    label_r = outer_r + 0.125  # 第三层中间位置
                     tx, ty = label_r * np.cos(rad), label_r * np.sin(rad)
                     fontsize = int(round(min(13, max(9, 10 + (width - required_deg) / 18))))
                     ax.text(
@@ -342,7 +342,7 @@ def get_sunburst_plot(df_stats, total_assets):
                         fontproperties=CH_FONT,
                     )
                 else:
-                    anchor_x, anchor_y = labels_r * np.cos(rad), labels_r * np.sin(rad)
+                    anchor_x, anchor_y = (outer_r + 0.25) * np.cos(rad), (outer_r + 0.25) * np.sin(rad)
                     side = "right" if np.cos(rad) >= 0 else "left"
                     outer_labels[side].append(
                         {
