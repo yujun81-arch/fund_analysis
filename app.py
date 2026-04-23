@@ -219,6 +219,7 @@ def parse_market_holdings(uploaded_market_file):
 def get_sunburst_plot(df_stats, total_assets):
     """生成三层旭日图的 Matplotlib Figure"""
     total_val = total_assets if total_assets > 0 else 1
+    min_outer_label_pct = 0.01
     base_colors = {
         'A股': '#5D8AA8', '海外': '#ED7D31', '债券': '#00A2E8', 
         '货币': '#004B66', '商品': '#FFD700', '其他': '#A5A5A5'
@@ -231,6 +232,20 @@ def get_sunburst_plot(df_stats, total_assets):
     
     inner_r, mid_r, outer_r, labels_r = 0.3, 0.55, 0.8, 1.05
     start_angle = 90
+
+    now = datetime.now()
+    weekday_map = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+    date_text = f"{now:%Y-%m-%d} {weekday_map[now.weekday()]}"
+    ax.text(
+        0.01,
+        0.99,
+        date_text,
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=10,
+        color="#666666",
+    )
     
     # 1. 第一层 (一级分类)
     l1_stats = df_stats.groupby('一级').agg({'资产': 'sum'}).reset_index()
@@ -290,8 +305,7 @@ def get_sunburst_plot(df_stats, total_assets):
             curr_l2_start -= width
 
     # 3. 第三层 (三级分类)
-    placed_y = {"left": [], "right": []}
-    min_y_gap = 0.06
+    outer_labels = {"left": [], "right": []}
     for l2_name, (l2_start, l2_width, b_color) in l2_angles.items():
         l3_stats = df_stats[df_stats['二级'] == l2_name].groupby('三级')['资产'].sum().reset_index().sort_values('资产', ascending=False)
         curr_l3_start = l2_start
@@ -300,14 +314,14 @@ def get_sunburst_plot(df_stats, total_assets):
             width = (row['资产'] / l3_stats['资产'].sum()) * l2_width
             color = matplotlib.colors.to_rgba(b_color, alpha=0.5 - (i % 3) * 0.1)
             ax.add_patch(Wedge((0, 0), labels_r, curr_l3_start - width, curr_l3_start, width=labels_r-outer_r, facecolor=color, edgecolor='w'))
-            if pct > 0.003:
+            if pct >= min_outer_label_pct:
                 mid_a = curr_l3_start - width / 2
                 rad = np.deg2rad(mid_a)
                 name = str(row['三级'])
                 label = f"{name}\n{pct:.1%}"
 
                 required_deg = 10 + len(name) * 1.5
-                inside_ok = width >= required_deg and pct >= 0.004
+                inside_ok = width >= required_deg and pct >= min_outer_label_pct
                 if inside_ok:
                     label_r = (outer_r + labels_r) / 2
                     tx, ty = label_r * np.cos(rad), label_r * np.sin(rad)
@@ -315,43 +329,65 @@ def get_sunburst_plot(df_stats, total_assets):
                     ax.text(tx, ty, label, ha='center', va='center', fontsize=fontsize, color='white', weight='bold')
                 else:
                     anchor_x, anchor_y = labels_r * np.cos(rad), labels_r * np.sin(rad)
-                    elbow_x, elbow_y = (labels_r + 0.05) * np.cos(rad), (labels_r + 0.05) * np.sin(rad)
-
                     side = "right" if np.cos(rad) >= 0 else "left"
-                    label_x = (labels_r + 0.22) if side == "right" else -(labels_r + 0.22)
-                    label_y = elbow_y
-                    step = min_y_gap
-                    for _ in range(80):
-                        if all(abs(label_y - y0) >= min_y_gap for y0 in placed_y[side]):
-                            break
-                        label_y = label_y + step if label_y >= 0 else label_y - step
-                        if label_y > 1.18:
-                            label_y = 1.18
-                            step = -step
-                        if label_y < -1.18:
-                            label_y = -1.18
-                            step = -step
-                    placed_y[side].append(label_y)
-
-                    ax.plot([anchor_x, elbow_x, label_x], [anchor_y, elbow_y, label_y], color='gray', lw=0.5)
-                    ha = 'left' if side == "right" else 'right'
-                    ax.text(label_x, label_y, label, ha=ha, va='center', fontsize=10, color='#333333', weight='bold')
+                    outer_labels[side].append(
+                        {
+                            "rad": rad,
+                            "anchor_x": anchor_x,
+                            "anchor_y": anchor_y,
+                            "label": label,
+                        }
+                    )
             curr_l3_start -= width
+
+    y_min, y_max = -1.18, 1.18
+    for side, items in outer_labels.items():
+        if not items:
+            continue
+        items = sorted(items, key=lambda x: x["anchor_y"])
+        fontsize = 10 if len(items) <= 18 else 9
+        min_y_gap = 0.09 if fontsize == 10 else 0.075
+        ys = [i["anchor_y"] for i in items]
+        for idx in range(1, len(ys)):
+            if ys[idx] - ys[idx - 1] < min_y_gap:
+                ys[idx] = ys[idx - 1] + min_y_gap
+        if ys[-1] > y_max:
+            shift = ys[-1] - y_max
+            ys = [y - shift for y in ys]
+        for idx in range(len(ys) - 2, -1, -1):
+            if ys[idx + 1] - ys[idx] < min_y_gap:
+                ys[idx] = ys[idx + 1] - min_y_gap
+        if ys[0] < y_min:
+            shift = y_min - ys[0]
+            ys = [y + shift for y in ys]
+            for idx in range(1, len(ys)):
+                if ys[idx] - ys[idx - 1] < min_y_gap:
+                    ys[idx] = ys[idx - 1] + min_y_gap
+            if ys[-1] > y_max:
+                shift = ys[-1] - y_max
+                ys = [y - shift for y in ys]
+
+        label_x = (labels_r + 0.22) if side == "right" else -(labels_r + 0.22)
+        ha = 'left' if side == "right" else 'right'
+        for item, label_y in zip(items, ys):
+            elbow_x, elbow_y = (labels_r + 0.05) * np.cos(item["rad"]), (labels_r + 0.05) * np.sin(item["rad"])
+            ax.plot([item["anchor_x"], elbow_x, label_x], [item["anchor_y"], elbow_y, label_y], color='gray', lw=0.5)
+            ax.text(label_x, label_y, item["label"], ha=ha, va='center', fontsize=fontsize, color='#333333', weight='bold')
 
     ax.text(0, 0, "资产配置", ha='center', va='center', fontsize=22, weight='bold', color='#2C3E50')
     return fig
 
 # --- UI 界面 ---
-st.title("📊 基金资产穿透分析系统")
-st.markdown("上传基金持仓 Excel 文件，系统将自动分类并生成三层旭日图。您可以手动微调分类结果。")
+st.title("📊 基金资产仓位分布穿透系统")
+st.markdown("上传基金持仓 Excel 文件，系统将自动分析仓位分布，并生成三层旭日图。您可以手动微调分类结果。")
 
 if not os.path.exists(RULES_FILE):
     st.error(f"找不到规则文件: {RULES_FILE}")
 else:
     classifier = FundClassifier(RULES_FILE)
 
-    uploaded_file = st.file_uploader("选择 场外基金持仓 文件", type=["xlsx"])
-    uploaded_market_file = st.file_uploader("选择 场内持仓汇总 文件（可选，仅统计ETF）", type=["xlsx"], key="market_file")
+    uploaded_file = st.file_uploader("选择 从“基金E账户”中导出的场外基金持仓 文件", type=["xlsx"])
+    uploaded_market_file = st.file_uploader("选择 从同花顺投资账本中导出的场内持仓汇总 文件（可选，仅统计ETF）", type=["xlsx"], key="market_file")
 
     if uploaded_file:
         # 缓存数据处理
@@ -516,3 +552,11 @@ else:
                 file_name=f"基金穿透分析_{datetime.now().strftime('%Y%m%d')}.png",
                 mime="image/png"
             )
+
+
+
+st.divider()
+st.markdown(
+    "<div style='text-align:center; color:#888888; font-size:12px;'>Proudly powered by Trae Solo · contact:yujun81@163.com</div>",
+    unsafe_allow_html=True,
+)
