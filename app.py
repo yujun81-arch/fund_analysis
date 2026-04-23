@@ -10,6 +10,7 @@ from datetime import datetime
 from matplotlib.patches import Wedge
 import io
 import json
+import streamlit.components.v1 as components
 
 # 设置matplotlib字体
 CH_FONT = None
@@ -186,6 +187,45 @@ def aggregate_holdings(df, min_amount=10.0):
 
     out = out[out['资产金额'].abs() >= float(min_amount)].copy()
     return out
+
+
+def render_copy_table(df, key_prefix, button_label="一键复制"):
+    if df is None or df.empty:
+        st.caption("暂无可展示数据")
+        return
+    text_df = df.copy()
+    for col in text_df.columns:
+        text_df[col] = text_df[col].astype(str)
+    tsv = "\t".join(text_df.columns.tolist()) + "\n" + "\n".join(
+        ["\t".join(row) for row in text_df.to_numpy().tolist()]
+    )
+    safe_text = json.dumps(tsv)
+    button_id = f"copy_{key_prefix}"
+    status_id = f"status_{key_prefix}"
+    components.html(
+        f"""
+        <div style=\"display:flex; gap:8px; align-items:center;\">
+          <button id=\"{button_id}\" style=\"padding:6px 10px; border:1px solid #ddd; border-radius:6px; background:#fff; cursor:pointer;\">{button_label}</button>
+          <span id=\"{status_id}\" style=\"color:#666; font-size:12px;\"></span>
+        </div>
+        <script>
+          const text = {safe_text};
+          const btn = document.getElementById('{button_id}');
+          const status = document.getElementById('{status_id}');
+          btn.addEventListener('click', async () => {{
+            try {{
+              await navigator.clipboard.writeText(text);
+              status.textContent = '已复制';
+              setTimeout(() => status.textContent = '', 1500);
+            }} catch (e) {{
+              status.textContent = '复制失败，请手动复制';
+            }}
+          }});
+        </script>
+        """,
+        height=40,
+    )
+    st.dataframe(df, hide_index=True, use_container_width=True)
 
 
 def parse_market_holdings(uploaded_market_file):
@@ -387,7 +427,7 @@ else:
     classifier = FundClassifier(RULES_FILE)
 
     uploaded_file = st.file_uploader("选择 从“基金E账户”中导出的场外基金持仓 文件", type=["xlsx"])
-    uploaded_market_file = st.file_uploader("选择 从同花顺投资账本中导出的场内持仓汇总 文件（可选，仅统计ETF）", type=["xlsx"], key="market_file")
+    uploaded_market_file = st.file_uploader("选择 从“同花顺投资账本”中导出的场内持仓汇总 文件（可选，仅统计ETF）", type=["xlsx"], key="market_file")
 
     if uploaded_file:
         # 缓存数据处理
@@ -536,12 +576,16 @@ else:
             st.pyplot(fig)
             
         with col2:
-            st.write("### 统计摘要")
-            summary = df_stats.groupby('一级', as_index=False)['资产'].sum()
-            summary['资产'] = pd.to_numeric(summary['资产'], errors='coerce').fillna(0)
-            summary = summary.sort_values('资产', ascending=False, kind='mergesort').reset_index(drop=True)
-            summary['占比'] = (summary['资产'] / summary['资产'].sum() * 100).map('{:.2f}%'.format)
-            st.dataframe(summary, hide_index=True)
+            st.write("### 三级分类明细")
+            l3 = df_stats.groupby(['一级', '二级', '三级'], as_index=False)['资产'].sum()
+            l3['资产'] = pd.to_numeric(l3['资产'], errors='coerce').fillna(0)
+            total_asset = float(l3['资产'].sum()) if float(l3['资产'].sum()) > 0 else 1.0
+            l3['占比'] = l3['资产'] / total_asset
+            l3 = l3[l3['占比'] >= 0.01].copy()
+            l3 = l3.sort_values('资产', ascending=False, kind='mergesort').reset_index(drop=True)
+            l3['资产'] = l3['资产'].map(lambda x: f"¥{x:,.2f}")
+            l3['占比'] = l3['占比'].map(lambda x: f"{x:.1%}")
+            render_copy_table(l3, key_prefix="l3", button_label="一键复制表格")
             
             # 下载按钮
             buf = io.BytesIO()
